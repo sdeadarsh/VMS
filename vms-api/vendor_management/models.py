@@ -12,7 +12,7 @@ class Vendor(models.Model):
     vendor_code = models.CharField(max_length=50, unique=True)
     on_time_delivery_rate = models.FloatField(default=0.0)
     quality_rating_avg = models.FloatField(default=0.0)
-    average_response_time = models.FloatField(default=0.0)
+    average_response_time = models.FloatField(default=0.0) #calculated in days
     fulfillment_rate = models.FloatField(default=0.0)
 
 
@@ -42,11 +42,11 @@ class PurchaseOrder(models.Model):
 
 
 class HistoricalPerformance(models.Model):
-    vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE)
+    vendor = models.ForeignKey('Vendor', on_delete=models.CASCADE)
     date = models.DateTimeField(default=timezone.now)
     on_time_delivery_rate = models.FloatField()
     quality_rating_avg = models.FloatField()
-    average_response_time = models.FloatField()
+    average_response_time = models.FloatField() #calculated in days
     fulfillment_rate = models.FloatField()
 
     def __str__(self):

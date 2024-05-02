@@ -84,15 +84,24 @@ class VendorViewSet(viewsets.ModelViewSet):
             "fulfillment_rate": 95.0
         }
         """
-        vendor = self.get_object()
-        performance_data = {
-            'vendor': vendor.id,
-            'on_time_delivery_rate': vendor.on_time_delivery_rate,
-            'quality_rating_avg': vendor.quality_rating_avg,
-            'average_response_time': vendor.average_response_time,
-            'fulfillment_rate': vendor.fulfillment_rate
-        }
-        return Response(performance_data)
+        try:
+            vendor_df = pd.DataFrame(HistoricalPerformance.objects.filter(vendor=pk).values())
+            df = vendor_df.replace({np.nan: None})
+            if df.empty:
+                return error_response("No Data Found")
+            vendor = df.to_dict(orient="records")
+            # performance_data = {
+            #     'vendor': vendor.id,
+            #     'on_time_delivery_rate': vendor.on_time_delivery_rate,
+            #     'quality_rating_avg': vendor.quality_rating_avg,
+            #     'average_response_time': vendor.average_response_time,
+            #     'fulfillment_rate': vendor.fulfillment_rate,
+            #     'date': vendor.date
+            # }
+            return Response(vendor)
+        except Exception as e:
+            print(str(e))
+            return error_response("Error in performances data")
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
@@ -114,14 +123,14 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=201)
 
     def update(self, request, *args, **kwargs):
-        rs = RequestProcess(request.GET)
+        rs = RequestProcess(request.data)
         rs.has(['vendor', 'status'])
         error = rs.has_errors()
         if error:
             res = ResponseProcess({}, message=error)
             return res.errord_response()
-        historical_performance_payload = {"vendor": request.data['vendor']}
-        vendor_payload = {'id': request.data['vendor']}
+        historical_performance_payload = {"vendor": int(request.data['vendor'])}
+        vendor_payload = {'id': int(request.data['vendor'])}
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
@@ -129,13 +138,13 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         self.perform_update(serializer)
         completed_orders = PurchaseOrder.objects.filter(vendor=request.data['vendor'])
         if 'status' in request.data:
-            self.update_fulfillment_rate(historical_performance_payload, vendor_payload, completed_orders)
+            self.update_fulfillment_rate(historical_performance_payload, vendor_payload, completed_orders) # this function is for calculating th average of fulfilment data
         if request.data.get('status', None) == 'completed':
-            self.update_on_time_delivery_rate(historical_performance_payload, vendor_payload, completed_orders)
-            self.update_quality_rating_avg(historical_performance_payload, vendor_payload, completed_orders)
+            self.update_on_time_delivery_rate(historical_performance_payload, vendor_payload, completed_orders)  # this function is for calculating th percentage of on time delivery
+            self.update_quality_rating_avg(historical_performance_payload, vendor_payload, completed_orders)  # this function is for calculating th average of quality rating
         if 'acknowledgment_date' in request.data:
-            self.update_average_response_time(historical_performance_payload, vendor_payload, completed_orders)
-        self.update_vendor_data(historical_performance_payload, vendor_payload, request.data['vendor'])
+            self.update_average_response_time(historical_performance_payload, vendor_payload, completed_orders)  # this function is for calculating th average of response time which is stored in days
+        self.update_vendor_data(historical_performance_payload, vendor_payload, request.data['vendor']) # this function is used to store the data of Historical vendor and current vendor
         return Response(serializer.data)
 
     def destroy(self, request, *args, **kwargs):
@@ -183,7 +192,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         on_time_orders = completed_orders.filter(delivery_date__lte=timezone.now())
         on_time_delivery_rate = 0.0
         if completed_orders.exists():
-            on_time_delivery_rate = on_time_orders.count() / completed_orders.count()
+            on_time_delivery_rate = round(on_time_orders.count() * 100 / completed_orders.count(), 2)
         vendor_payload['on_time_delivery_rate'] = on_time_delivery_rate
         historical_performance_payload['on_time_delivery_rate'] = on_time_delivery_rate
 
@@ -203,8 +212,12 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
             new_response_times = completed_orders.annotate(
                 response_time=ExpressionWrapper(F('acknowledgment_date') - F('issue_date'), output_field=DurationField()
                                                 )).values()
-            historical_performance_payload['average_response_time'] = float(new_response_times[0]['response_time'].days)
-            vendor_payload['average_response_time'] = float(new_response_times[0]['response_time'].days)
+            response_time_data = new_response_times[0]['response_time'].days
+            historical_performance_payload['average_response_time'] = 0
+            vendor_payload['average_response_time'] = 0
+            if response_time_data > 0:
+                historical_performance_payload['average_response_time'] = float(response_time_data)
+                vendor_payload['average_response_time'] = float(response_time_data)
 
     def update_fulfillment_rate(self, historical_performance_payload, vendor_payload, completed_orders):
         total_orders = completed_orders.count()
@@ -217,4 +230,11 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
     def update_vendor_data(self, historical_performance_payload, vendor_payload, vendor_id):
         Vendor.objects.filter(id=vendor_id).update(**vendor_payload)
-        HistoricalPerformance.objects.filter(vendor=vendor_id).update(**historical_performance_payload)
+        # print(historical_performance_payload)
+        hv_ser = HistoricalPerformanceSerializer(data=historical_performance_payload)
+        hv_ser.is_valid(raise_exception=True)
+        hv_ser.save()
+        # serializer = HistoricalPerformanceSerializer..get_serializer(data=request.data)
+        # serializer.is_valid(raise_exception=True)
+        # self.perform_create(serializer)
+        # HistoricalPerformance.objects.create(**historical_performance_payload)
