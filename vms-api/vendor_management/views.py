@@ -8,6 +8,8 @@ import numpy as np
 from .utils import error_response, success_response
 from django.utils import timezone
 from django.db.models import Count, Sum, ExpressionWrapper, F, Value, Avg, DurationField, FloatField
+from .request import RequestProcess
+from .response import ResponseProcess
 
 
 class VendorViewSet(viewsets.ModelViewSet):
@@ -16,6 +18,12 @@ class VendorViewSet(viewsets.ModelViewSet):
     serializer_class = VendorSerializer
 
     def create(self, request, *args, **kwargs):  # This function is to insert the vendor data
+        rs = RequestProcess(request.data)
+        rs.has(['name', 'contact_details', 'address'])
+        error = rs.has_errors()
+        if error:
+            res = ResponseProcess({}, message=error)
+            return res.errord_response()
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -93,12 +101,25 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     serializer_class = PurchaseOrderSerializer
 
     def create(self, request, *args, **kwargs):
+        rs = RequestProcess(request.data)
+        rs.has(['po_number', 'vendor', 'delivery_date', 'items', 'quantity', 'status'])
+        error = rs.has_errors()
+        if error:
+            res = ResponseProcess({}, message=error)
+            return res.errord_response()
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         return Response(serializer.data, status=201)
 
     def update(self, request, *args, **kwargs):
+        rs = RequestProcess(request.GET)
+        rs.has(['vendor', 'status'])
+        error = rs.has_errors()
+        if error:
+            res = ResponseProcess({}, message=error)
+            return res.errord_response()
         historical_performance_payload = {"vendor": request.data['vendor']}
         vendor_payload = {'id': request.data['vendor']}
         partial = kwargs.pop('partial', False)
