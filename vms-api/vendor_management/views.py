@@ -8,7 +8,6 @@ import numpy as np
 from .utils import error_response, success_response
 from django.utils import timezone
 from django.db.models import Count, Sum, ExpressionWrapper, F, Value, Avg, DurationField, FloatField
-from django.db.models.functions import Cast, Coalesce
 
 
 class VendorViewSet(viewsets.ModelViewSet):
@@ -16,13 +15,13 @@ class VendorViewSet(viewsets.ModelViewSet):
     queryset = Vendor.objects.all()
     serializer_class = VendorSerializer
 
-    def create(self, request, *args, **kwargs):
+    def create(self, request, *args, **kwargs):  # This function is to insert the vendor data
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         return Response(serializer.data, status=201)
 
-    def update(self, request, *args, **kwargs):
+    def update(self, request, *args, **kwargs):  # This function is to update the vendor data
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
@@ -30,14 +29,25 @@ class VendorViewSet(viewsets.ModelViewSet):
         self.perform_update(serializer)
         return Response(serializer.data)
 
-    def destroy(self, request, *args, **kwargs):
+    def destroy(self, request, *args, **kwargs):  # This function is to destroy the vendor data
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response(status=204)
 
-    def list(self, request, *args, **kwargs):
+    def list(self, request, *args, **kwargs):  # This function is list the vendor data
         try:
             df_data = pd.DataFrame(Vendor.objects.all().values())
+            df = df_data.replace({np.nan: None})
+            if df.empty:
+                return error_response("No Data Found")
+            final_data = df.to_dict(orient="records")
+            return success_response(final_data)
+        except Exception as e:
+            return error_response('Error in Vendor')
+
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            df_data = pd.DataFrame(Vendor.objects.filter(id=int(kwargs['pk'])).values())
             df = df_data.replace({np.nan: None})
             if df.empty:
                 return error_response("No Data Found")
@@ -68,15 +78,13 @@ class VendorViewSet(viewsets.ModelViewSet):
         """
         vendor = self.get_object()
         performance_data = {
-            'vendor':vendor.id,
+            'vendor': vendor.id,
             'on_time_delivery_rate': vendor.on_time_delivery_rate,
             'quality_rating_avg': vendor.quality_rating_avg,
             'average_response_time': vendor.average_response_time,
             'fulfillment_rate': vendor.fulfillment_rate
         }
         return Response(performance_data)
-
-
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
@@ -125,10 +133,21 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return error_response('Error in Purchase Order')
 
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            df_data = pd.DataFrame(PurchaseOrder.objects.filter(id=int(kwargs['pk'])).values())
+            df = df_data.replace({np.nan: None})
+            if df.empty:
+                return error_response("No Data Found")
+            final_data = df.to_dict(orient="records")
+            return success_response(final_data)
+        except Exception as e:
+            return error_response('Error in Purchase Order')
+
     @action(detail=True, methods=['post'])
     def acknowledge(self, request, pk=None):
         if 'acknowledgment_date' in request.data:
-            acknowledgment_date= request.data['acknowledgment_date']
+            acknowledgment_date = request.data['acknowledgment_date']
             PurchaseOrder.objects.filter(id=pk).update(acknowledgment_date=acknowledgment_date)
             vendor_data = PurchaseOrder.objects.filter(id=pk).values('vendor')
             vendor = vendor_data[0]['vendor']
